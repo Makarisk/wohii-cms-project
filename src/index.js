@@ -1,13 +1,17 @@
 const express = require("express");
 const app = express();
+
+const authRouter = require("./routes/auth");
 const PORT = process.env.PORT || 3000;
 
 const questionsRouter = require("./routes/questions");
 const prisma = require("./lib/prisma");
 
+// Middleware to parse JSON bodies
 app.use(express.json());
 
-// everything under /api/questions
+// Routes
+app.use("/api/auth", authRouter);
 app.use("/api/questions", questionsRouter);
 
 app.use((req, res) => {

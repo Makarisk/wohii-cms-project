@@ -2,6 +2,10 @@ const express = require("express");
 const router = express.Router();
 const prisma = require("../lib/prisma");
 
+const authenticate = require("../middleware/auth");
+const isOwner = require("../middleware/isOwner");
+
+router.use(authenticate);
 // GET /questions
 router.get("/", async (req, res, next) => {
   try {
