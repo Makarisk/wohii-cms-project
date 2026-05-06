@@ -4,15 +4,98 @@ const prisma = require("../lib/prisma");
 
 const authenticate = require("../middleware/auth");
 const isOwner = require("../middleware/isOwner");
+const multer = require("multer");
+const path = require("path");
+
+const storage = multer.diskStorage({
+  destination: path.join(__dirname, "..", "..", "public", "uploads"),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+function formatQuestion(question) {
+  return {
+    ...question,
+    keywords: question.keywords ? question.keywords.map((k) => k.name) : [],
+    userName: question.user ? question.user.name : null,
+    solved: question.attempts ? question.attempts.length > 0 : false,
+    attemptCount: question._count?.attempts ?? 0,
+    user: undefined,
+    attempts: undefined,
+    _count: undefined,
+  };
+} 
 
 router.use(authenticate);
-// GET /questions
+
+function parseKeywords(keywords) {
+  if (Array.isArray(keywords)) return keywords;
+
+  if (typeof keywords === "string") {
+    return keywords
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+// // GET /api/questions, /api/questions?page=1&limit=5
 router.get("/", async (req, res, next) => {
   try {
-    const questions = await prisma.question.findMany({
+        
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 5));
+    const skip = (page - 1) * limit;
+    const { keyword } = req.query;
+
+    const where = keyword
+      ? { keywords: { some: { name: keyword } } }
+      : {};
+
+    const [questions, total] = await Promise.all([prisma.question.findMany({
+      where,
+      include: { 
+        user: true,
+        keywords: true,
+        attempts: {
+          where: {
+            userId: req.user.userId,
+            correct: true,
+          },
+          take: 1,
+        },
+        _count: { select: { attempts: true } },
+      
+      },
       orderBy: { id: "asc" },
-    });
-    res.json(questions);
+      skip,
+      take: limit,
+    }), prisma.question.count({where})]);
+
+    res.json({
+        data: questions.map(formatQuestion),
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total/limit),
+    })    
+    
   } catch (error) {
     next(error);
   }
@@ -25,22 +108,36 @@ router.get("/:qId", async (req, res, next) => {
 
     const question = await prisma.question.findUnique({
       where: { id: qId },
+      include: { 
+        user: true,
+        keywords: true,
+        attempts: { 
+          where: { 
+            userId: req.user.userId, 
+            correct: true,
+        },  
+        take: 1,
+       },
+        _count: { select: { attempts: true } },
+      },  
     });
 
     if (!question) {
       return res.status(404).json({ message: "Question not found" });
     }
 
-    res.json(question);
+    res.json(formatQuestion(question));
   } catch (error) {
     next(error);
   }
 });
 
 // POST /questions
-router.post("/", async (req, res, next) => {
+router.post("/", upload.single("image"), async (req, res, next) => {
   try {
-    const { question, answer } = req.body;
+    const { question, answer, keywords } = req.body;
+    const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
+    const keywordsArray = parseKeywords(keywords);
 
     if (!question || !answer) {
       return res.status(400).json({
@@ -52,24 +149,35 @@ router.post("/", async (req, res, next) => {
       data: {
         question,
         answer,
+        imageUrl,
         userId: req.user.userId,
+        keywords: {
+          connectOrCreate: keywordsArray.map((kw) => ({
+            where: { name: kw },
+            create: { name: kw },
+          })),  
+        },
       },
+      include: { keywords: true, user: true },  
+
     });
 
-    res.status(201).json(newQuestion);
+    res.status(201).json(formatQuestion(newQuestion));
   } catch (error) {
     next(error);
   }
 });
 
 // PUT /questions/:qId
-router.put("/:qId", async (req, res, next) => {
+router.put("/:qId", upload.single("image"), isOwner, async (req, res, next) => {
   try {
     const qId = Number(req.params.qId);
-    const { question, answer } = req.body;
+    const { question, answer, keywords } = req.body;
+    const keywordsArray = parseKeywords(keywords);
 
     const existingQuestion = await prisma.question.findUnique({
       where: { id: qId },
+      
     });
 
     if (!existingQuestion) {
@@ -81,28 +189,41 @@ router.put("/:qId", async (req, res, next) => {
         message: "question and answer are mandatory",
       });
     }
+    const data = {
+      question,
+      answer,
+      keywords: {
+        set: [],
+        connectOrCreate: keywordsArray.map((kw) => ({
+          where: { name: kw },
+          create: { name: kw },
+        })),
+      },    
+    };
 
+    if (req.file) {
+      data.imageUrl = `/uploads/${req.file.filename}`;
+    }
     const updatedQuestion = await prisma.question.update({
       where: { id: qId },
-      data: {
-        question,
-        answer,
-      },
+      include: { user: true, keywords: true },
+      data,
     });
 
-    res.json(updatedQuestion);
+    res.json(formatQuestion(updatedQuestion));
   } catch (error) {
     next(error);
   }
 });
 
 // DELETE /questions/:qId
-router.delete("/:qId", async (req, res, next) => {
+router.delete("/:qId", isOwner, async (req, res, next) => {
   try {
     const qId = Number(req.params.qId);
 
     const question = await prisma.question.findUnique({
       where: { id: qId },
+      include: { user: true, keywords: true },
     });
 
     if (!question) {
@@ -111,15 +232,62 @@ router.delete("/:qId", async (req, res, next) => {
 
     await prisma.question.delete({
       where: { id: qId },
+      
     });
 
     res.json({
       message: "Question deleted successfully",
-      question,
+      question: formatQuestion(question),
     });
   } catch (error) {
     next(error);
   }
+});
+
+// POST /questions/:qId/attempt
+router.post("/:qId/attempt", async (req, res) => {
+  const qId = Number(req.params.qId);
+  const { submittedAnswer } = req.body || {};
+
+  if (!submittedAnswer) {
+    return res.status(400).json({
+      message: "submittedAnswer is mandatory",
+    });
+  }
+
+  const question = await prisma.question.findUnique({
+    where: { id: qId },
+  });
+
+  if (!question) {
+    return res.status(404).json({ message: "Question not found" });
+  }
+
+  const correct =
+    submittedAnswer.trim().toLowerCase() ===
+    question.answer.trim().toLowerCase();
+
+  const attempt = await prisma.attempt.create({
+    data: {
+      submittedAnswer,
+      correct,
+      userId: req.user.userId,
+      questionId: qId,
+    },
+  });
+  const attemptCount = await prisma.attempt.count({
+    where: { questionId: qId },
+  });
+
+  res.status(201).json({
+    id: attempt.id,
+    questionId: qId,
+    correct,
+    submittedAnswer: attempt.submittedAnswer,
+    correctAnswer: question.answer,
+    attemptCount,
+    createdAt: attempt.createdAt,
+  });
 });
 
 module.exports = router;
