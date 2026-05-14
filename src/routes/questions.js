@@ -6,6 +6,15 @@ const authenticate = require("../middleware/auth");
 const isOwner = require("../middleware/isOwner");
 const multer = require("multer");
 const path = require("path");
+const { ValidationError, NotFoundError } = require("../lib/errors");
+const { z } = require("zod");
+
+const QuestionInput = z.object({
+  question: z.string().min(1),
+  answer: z.string().min(1),
+  keywords: z.union([z.string(), z.array(z.string())]).optional(),
+});
+
 
 const storage = multer.diskStorage({
   destination: path.join(__dirname, "..", "..", "public", "uploads"),
@@ -21,7 +30,7 @@ const upload = multer({
     if (file.mimetype.startsWith("image/")) {
       cb(null, true);
     } else {
-      cb(new Error("Only image files are allowed"));
+      cb(new ValidationError("Only image files are allowed"));
     }
   },
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -123,7 +132,7 @@ router.get("/:qId", async (req, res, next) => {
     });
 
     if (!question) {
-      return res.status(404).json({ message: "Question not found" });
+      throw new NotFoundError("Question not found");
     }
 
     res.json(formatQuestion(question));
@@ -135,15 +144,9 @@ router.get("/:qId", async (req, res, next) => {
 // POST /questions
 router.post("/", upload.single("image"), async (req, res, next) => {
   try {
-    const { question, answer, keywords } = req.body;
+    const { question, answer, keywords } = QuestionInput.parse(req.body);
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
     const keywordsArray = parseKeywords(keywords);
-
-    if (!question || !answer) {
-      return res.status(400).json({
-        message: "question and answer are mandatory",
-      });
-    }
 
     const newQuestion = await prisma.question.create({
       data: {
@@ -172,7 +175,7 @@ router.post("/", upload.single("image"), async (req, res, next) => {
 router.put("/:qId", upload.single("image"), isOwner, async (req, res, next) => {
   try {
     const qId = Number(req.params.qId);
-    const { question, answer, keywords } = req.body;
+    const { question, answer, keywords } = QuestionInput.parse(req.body);
     const keywordsArray = parseKeywords(keywords);
 
     const existingQuestion = await prisma.question.findUnique({
@@ -181,14 +184,9 @@ router.put("/:qId", upload.single("image"), isOwner, async (req, res, next) => {
     });
 
     if (!existingQuestion) {
-      return res.status(404).json({ message: "Question not found" });
+      throw new NotFoundError("Question not found");
     }
 
-    if (!question || !answer) {
-      return res.status(400).json({
-        message: "question and answer are mandatory",
-      });
-    }
     const data = {
       question,
       answer,
@@ -227,7 +225,7 @@ router.delete("/:qId", isOwner, async (req, res, next) => {
     });
 
     if (!question) {
-      return res.status(404).json({ message: "Question not found" });
+      throw new NotFoundError("Question not found");
     }
 
     await prisma.question.delete({
@@ -250,9 +248,7 @@ router.post("/:qId/attempt", async (req, res) => {
   const { submittedAnswer } = req.body || {};
 
   if (!submittedAnswer) {
-    return res.status(400).json({
-      message: "submittedAnswer is mandatory",
-    });
+    throw new ValidationError("submittedAnswer is mandatory");
   }
 
   const question = await prisma.question.findUnique({
@@ -260,7 +256,7 @@ router.post("/:qId/attempt", async (req, res) => {
   });
 
   if (!question) {
-    return res.status(404).json({ message: "Question not found" });
+    throw new NotFoundError("Question not found");
   }
 
   const correct =
@@ -290,4 +286,16 @@ router.post("/:qId/attempt", async (req, res) => {
   });
 });
 
+router.use((err, req, res, next) => {
+  if (
+    err instanceof multer.MulterError ||
+    err?.message === "Only image files are allowed"
+  ) {
+    return res.status(400).json({ msg: err.message });
+  }
+
+  next(err);
+});
+
 module.exports = router;
+module.exports.formatQuestion = formatQuestion;
