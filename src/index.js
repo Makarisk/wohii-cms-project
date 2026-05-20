@@ -5,6 +5,8 @@ const prisma = require("./lib/prisma");
 
 const PORT = process.env.PORT || 3000;
 
+console.log("NODE_ENV =", process.env.NODE_ENV);
+
 //Start the server
 const server = app.listen(PORT, () => {
   logger.info({ port: PORT }, "server listening");

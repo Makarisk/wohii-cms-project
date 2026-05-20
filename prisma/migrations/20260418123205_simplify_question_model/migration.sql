@@ -10,11 +10,7 @@
   - Added the required column `question` to the `questions` table without a default value. This is not possible if the table is not empty.
 
 */
--- DropForeignKey
-ALTER TABLE `_keywordtoquestion` DROP FOREIGN KEY `_KeywordToQuestion_A_fkey`;
 
--- DropForeignKey
-ALTER TABLE `_keywordtoquestion` DROP FOREIGN KEY `_KeywordToQuestion_B_fkey`;
 
 -- AlterTable
 ALTER TABLE `questions` DROP COLUMN `content`,
@@ -24,7 +20,10 @@ ALTER TABLE `questions` DROP COLUMN `content`,
     ADD COLUMN `question` TEXT NOT NULL;
 
 -- DropTable
-DROP TABLE `_keywordtoquestion`;
+DROP TABLE IF EXISTS `_KeywordToQuestion`;
 
 -- DropTable
-DROP TABLE `keywords`;
+DROP TABLE IF EXISTS `_keywordtoquestion`;
+
+-- DropTable
+DROP TABLE IF EXISTS `keywords`;
