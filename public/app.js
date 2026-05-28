@@ -95,12 +95,23 @@ async function handleAuth(e) {
   });
 
   try {
-    const data = await apiFetch(route, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    setToken(data.token);
-    showApp();
+  const data = await apiFetch(route, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  if (isRegisterMode) {
+    errorEl.style.color = "#51cf66";
+    errorEl.textContent = data.message || "Registration successful. Please check your email to confirm your account.";
+    isRegisterMode = false;
+    setTimeout(() => {
+      renderAuthForm();
+    }, 2500);
+    return;
+  }
+
+  setToken(data.token);
+  showApp();
   } catch (err) {
     errorEl.textContent = err.message;
   }
@@ -139,7 +150,13 @@ async function loadQuestions(keyword = "", page = 1) {
         </div>
       </div>
       <div class="toolbar">
-        <button class="btn btn-primary" id="new-question-btn">+ New Question</button>
+        <div style="display:flex; gap:0.8rem; flex-wrap:wrap; align-items:center;">
+          <button class="btn btn-primary" id="new-question-btn">+ New Question</button>
+          <label class="btn btn-primary" style="cursor:pointer;">
+            Import CSV
+            <input type="file" id="csv-file-input" accept=".csv,text/csv" style="display:none;" />
+          </label>
+        </div>
         <div class="search-bar">
           <input type="text" id="keyword-input" placeholder="Search by keyword..." value="${keyword}" />
           <button class="btn btn-search" id="search-btn">Search</button>
@@ -195,6 +212,7 @@ async function loadQuestions(keyword = "", page = 1) {
     container.innerHTML = html;
 
     document.getElementById("new-question-btn").addEventListener("click", () => showQuestionForm());
+    document.getElementById("csv-file-input").addEventListener("change", handleCsvImport);
 
     document.getElementById("search-btn").addEventListener("click", () => {
       loadQuestions(document.getElementById("keyword-input").value.trim(), 1);
@@ -425,6 +443,36 @@ async function playQuestion(qId) {
     });
   } catch (err) {
     container.innerHTML = `<p class="error">${err.message}</p>`;
+  }
+}
+
+// --- CSV Import ---
+async function handleCsvImport(e) {
+  const file = e.target.files[0];
+
+  if (!file) return;
+
+  if (!file.name.toLowerCase().endsWith(".csv")) {
+    alert("Please choose a CSV file.");
+    e.target.value = "";
+    return;
+  }
+
+  const body = new FormData();
+  body.append("file", file);
+
+  try {
+    const result = await apiFetch(CONFIG.ROUTES.IMPORT_CSV, {
+      method: "POST",
+      body,
+    });
+
+    alert(`CSV import successful. Imported questions: ${result.count}`);
+    e.target.value = "";
+    loadQuestions();
+  } catch (err) {
+    alert(err.message);
+    e.target.value = "";
   }
 }
 

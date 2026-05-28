@@ -6,6 +6,7 @@ const authenticate = require("../middleware/auth");
 const isOwner = require("../middleware/isOwner");
 const multer = require("multer");
 const path = require("path");
+const { parse } = require("csv-parse/sync");
 const { ValidationError, NotFoundError } = require("../lib/errors");
 const { z } = require("zod");
 
@@ -36,6 +37,21 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+const csvUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    if (
+      file.mimetype === "text/csv" ||
+      file.originalname.toLowerCase().endsWith(".csv")
+    ) {
+      cb(null, true);
+    } else {
+      cb(new ValidationError("Only CSV files are allowed"));
+    }
+  },
+  limits: { fileSize: 2 * 1024 * 1024 },
+});
+
 function formatQuestion(question) {
   return {
     ...question,
@@ -62,6 +78,15 @@ function parseKeywords(keywords) {
   }
 
   return [];
+}
+
+function parseCsvKeywords(keywords) {
+  if (!keywords) return [];
+
+  return keywords
+    .split(";")
+    .map((k) => k.trim())
+    .filter(Boolean);
 }
 
 // // GET /api/questions, /api/questions?page=1&limit=5
@@ -105,6 +130,68 @@ router.get("/", async (req, res, next) => {
         totalPages: Math.ceil(total/limit),
     })    
     
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/questions/import-csv
+router.post("/import-csv", csvUpload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      throw new ValidationError("CSV file is required");
+    }
+
+    const csvText = req.file.buffer.toString("utf8");
+
+    const records = parse(csvText, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    });
+
+    if (records.length === 0) {
+      throw new ValidationError("CSV file is empty");
+    }
+
+    const createdQuestions = [];
+
+    for (const record of records) {
+      const question = record.question;
+      const answer = record.answer;
+      const keywordsArray = parseCsvKeywords(record.keywords);
+
+      if (!question || !answer) {
+        throw new ValidationError("Each CSV row must contain question and answer");
+      }
+
+      const newQuestion = await prisma.question.create({
+        data: {
+          question,
+          answer,
+          imageUrl: null,
+          userId: req.user.userId,
+          keywords: {
+            connectOrCreate: keywordsArray.map((kw) => ({
+              where: { name: kw },
+              create: { name: kw },
+            })),
+          },
+        },
+        include: {
+          keywords: true,
+          user: true,
+        },
+      });
+
+      createdQuestions.push(formatQuestion(newQuestion));
+    }
+
+    res.status(201).json({
+      message: "Questions imported successfully",
+      count: createdQuestions.length,
+      data: createdQuestions,
+    });
   } catch (error) {
     next(error);
   }
@@ -289,7 +376,8 @@ router.post("/:qId/attempt", async (req, res) => {
 router.use((err, req, res, next) => {
   if (
     err instanceof multer.MulterError ||
-    err?.message === "Only image files are allowed"
+    err?.message === "Only image files are allowed" ||
+    err?.message === "Only CSV files are allowed"
   ) {
     return res.status(400).json({ msg: err.message });
   }
