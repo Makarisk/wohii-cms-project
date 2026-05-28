@@ -3,7 +3,9 @@ const CONFIG = {
   ROUTES: {
     LOGIN: "/api/auth/login",
     REGISTER: "/api/auth/register",
+    CAPTCHA: "/api/auth/captcha",
     QUESTIONS: "/api/questions",
+    IMPORT_CSV: "/api/questions/import-csv",
   },
   FIELDS: {
     LOGIN: ["email", "password"],

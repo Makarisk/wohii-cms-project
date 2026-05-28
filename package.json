@@ -10,7 +10,6 @@
     "db:seed": "npx prisma db seed",
     "db:studio": "npx prisma studio",
     "db:reset": "npx prisma migrate reset",
-
     "test": "dotenv -e .env.test -- vitest run --globals --fileParallelism=false",
     "test:watch": "dotenv -e .env.test -- vitest run --globals --fileParallelism=false",
     "test:setup": "dotenv -e .env.test -- npx prisma migrate deploy",
@@ -29,9 +28,11 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bcrypt": "^6.0.0",
+    "csv-parse": "^6.2.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "nodemailer": "^8.0.9",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "pino-pretty": "^13.1.3",
