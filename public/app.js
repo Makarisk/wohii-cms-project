@@ -1,5 +1,6 @@
 // --- State ---
 let isRegisterMode = false;
+let currentCaptchaId = null;
 
 // --- Helpers ---
 function getCurrentUserId() {
@@ -33,7 +34,7 @@ async function apiFetch(route, options = {}) {
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${CONFIG.API_URL}${route}`, { ...options, headers });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || data.msg || "Request failed");
+  if (!res.ok) throw new Error(data.message || data.error || data.msg || "Request failed");
   return data;
 }
 
@@ -66,6 +67,18 @@ function renderAuthForm() {
           </div>`;
         })
         .join("")}
+
+      ${isRegisterMode ? `
+        <div class="form-group">
+          <label for="captcha-answer">Human check</label>
+          <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+            <span id="captcha-question" style="font-weight:800; color:#ffd200;">Loading...</span>
+            <button type="button" id="refresh-captcha" class="btn btn-search">Refresh</button>
+          </div>
+          <input type="text" id="captcha-answer" name="captcha-answer" placeholder="Write the answer" required />
+        </div>
+      ` : ""}
+
       <button type="submit">${title}</button>
     </form>
     <p class="switch-text">${switchText}</p>
@@ -79,6 +92,23 @@ function renderAuthForm() {
     isRegisterMode = !isRegisterMode;
     renderAuthForm();
   });
+  if (isRegisterMode) {
+    loadCaptcha();
+    document.getElementById("refresh-captcha").addEventListener("click", loadCaptcha);
+  }
+}
+
+async function loadCaptcha() {
+  try {
+    const data = await apiFetch(CONFIG.ROUTES.CAPTCHA);
+    currentCaptchaId = data.captchaId;
+    document.getElementById("captcha-question").textContent = data.question;
+  } catch (err) {
+    const captchaQuestion = document.getElementById("captcha-question");
+    if (captchaQuestion) {
+      captchaQuestion.textContent = "Could not load captcha";
+    }
+  }
 }
 
 async function handleAuth(e) {
@@ -94,26 +124,40 @@ async function handleAuth(e) {
     body[f] = document.getElementById(f).value;
   });
 
+  if (isRegisterMode) {
+    body.captchaId = currentCaptchaId;
+    body.captchaAnswer = document.getElementById("captcha-answer").value;
+  }
+
   try {
-  const data = await apiFetch(route, {
+    const data = await apiFetch(route, {
     method: "POST",
     body: JSON.stringify(body),
   });
 
   if (isRegisterMode) {
     errorEl.style.color = "#51cf66";
-    errorEl.textContent = data.message || "Registration successful. Please check your email to confirm your account.";
+    errorEl.textContent =
+      data.message || "Registration successful. Please check your email to confirm your account.";
+
     isRegisterMode = false;
+
     setTimeout(() => {
       renderAuthForm();
     }, 2500);
+
     return;
   }
 
   setToken(data.token);
   showApp();
   } catch (err) {
+    errorEl.style.color = "#ff6b6b";
     errorEl.textContent = err.message;
+
+    if (isRegisterMode) {
+      loadCaptcha();
+    }
   }
 }
 

@@ -13,14 +13,57 @@ const {
 } = require("../lib/errors");
 
 const SECRET = process.env.JWT_SECRET;
+
+const captchaStore = new Map();
+
+function createCaptcha() {
+  const a = Math.floor(Math.random() * 10) + 1;
+  const b = Math.floor(Math.random() * 10) + 1;
+  const captchaId = crypto.randomBytes(16).toString("hex");
+
+  captchaStore.set(captchaId, {
+    answer: String(a + b),
+    expiresAt: Date.now() + 10 * 60 * 1000,
+  });
+
+  return {
+    captchaId,
+    question: `${a} + ${b} = ?`,
+  };
+}
+
+function validateCaptcha(captchaId, captchaAnswer) {
+  const savedCaptcha = captchaStore.get(captchaId);
+
+  if (!savedCaptcha) {
+    throw new ValidationError("Captcha is required");
+  }
+
+  if (savedCaptcha.expiresAt < Date.now()) {
+    captchaStore.delete(captchaId);
+    throw new ValidationError("Captcha expired. Please try again.");
+  }
+
+  if (String(captchaAnswer).trim() !== savedCaptcha.answer) {
+    throw new ValidationError("Captcha answer is incorrect");
+  }
+
+  captchaStore.delete(captchaId);
+}
 // Here we will add all routes related to authentication
+// GET /api/auth/captcha
+router.get("/captcha", (req, res) => {
+  res.json(createCaptcha());
+});
+
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
-  const { email, password, name } = req.body;
+  const { email, password, name, captchaId, captchaAnswer } = req.body;
 
-  if (!email || !password || !name) {
-    throw new ValidationError("email, password and name are required");
+  if (!email || !password || !name || !captchaId || !captchaAnswer) {
+    throw new ValidationError("email, password, name and captcha are required");
   }
+  validateCaptcha(captchaId, captchaAnswer);
   // Check if user already exists
   const existingUser = await prisma.user.findUnique({ where: { email },});
 
