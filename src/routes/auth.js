@@ -161,7 +161,7 @@ router.post("/login", async (req, res) => {
   }
 
   // Block login before email confirmation
-  if (!user.emailConfirmed) {
+  if (!user.emailConfirmed && user.emailConfirmationToken) {
     return res.status(403).json({
       message: "Please confirm your email before logging in.",
     });

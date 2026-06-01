@@ -102,7 +102,17 @@ async function loadCaptcha() {
   try {
     const data = await apiFetch(CONFIG.ROUTES.CAPTCHA);
     currentCaptchaId = data.captchaId;
-    document.getElementById("captcha-question").textContent = data.question;
+
+    const captchaQuestion = document.getElementById("captcha-question");
+    const captchaAnswer = document.getElementById("captcha-answer");
+
+    if (captchaQuestion) {
+      captchaQuestion.textContent = data.question;
+    }
+
+    if (captchaAnswer) {
+      captchaAnswer.value = "";
+    }
   } catch (err) {
     const captchaQuestion = document.getElementById("captcha-question");
     if (captchaQuestion) {
