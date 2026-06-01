@@ -77,24 +77,38 @@ router.post("/register", async (req, res) => {
     // Create email confirmation token
   const confirmationToken = crypto.randomBytes(32).toString("hex");
 
-  // Create the user
-  const user = await prisma.user.create({
-    data: {
-      email,
-      password: hashedPassword,
-      name,
-      emailConfirmed: false,
-      emailConfirmationToken: confirmationToken,
-      emailConfirmationExpiry: new Date(Date.now() + 1000 * 60 * 60 * 24),
-    },
-  });
+// Create the user
+const user = await prisma.user.create({
+  data: {
+    email,
+    password: hashedPassword,
+    name,
+    emailConfirmed: false,
+    emailConfirmationToken: confirmationToken,
+    emailConfirmationExpiry: new Date(Date.now() + 1000 * 60 * 60 * 24),
+  },
+});
 
-    // Send confirmation email
+try {
+  // Send confirmation email
   await sendConfirmationEmail(user.email, confirmationToken);
 
   res.status(201).json({
-    message: "User registered successfully. Please check your email to confirm your account.",
+    message:
+      "User registered successfully. Please check your email to confirm your account.",
   });
+} catch (error) {
+  // If email sending fails, remove the created user
+  await prisma.user.delete({
+    where: { id: user.id },
+  });
+
+  console.error("Email sending failed:", error);
+
+  res.status(500).json({
+    message: "Registration failed because confirmation email could not be sent.",
+  });
+}
 });
 
 // GET /api/auth/confirm-email?token=...
